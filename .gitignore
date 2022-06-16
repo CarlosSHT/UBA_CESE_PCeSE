@@ -1,0 +1,15 @@
+.metadata/
+.settings/
+Debug/
+Drivers/
+Startup/
+*.elf
+Release/
+!Release/
+*.ld
+objects.list
+*.ioc
+*.launch
+*.project
+*.mxproject
+*.cproject
