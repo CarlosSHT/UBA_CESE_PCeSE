@@ -27,24 +27,20 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "WM8960.h"
-#include "port.h"
 #include "audio_test.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+typedef enum _APP_FSM {
+	startplay = 0, playing, startrecord, recording, waiting1, waiting2
+} appFSM;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#ifdef __GNUC__
-/* With GCC, small printf (option LD Linker->Libraries->Small printf
- set to 'Yes') calls __io_putchar() */
-#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
-#else
-#define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
-#endif /* __GNUC__ */
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -56,11 +52,25 @@
 
 /* USER CODE BEGIN PV */
 
+WM8960_prStates stop_play_flag;
+WM8960_prStates stop_rec_flag;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
+
+extern int8_t Init_wm8960_port(I2C_HandleTypeDef *i2c_inst,
+		I2S_HandleTypeDef *i2s_inst);
+extern int8_t I2C_write_wm8960_port(uint8_t regdir, uint16_t value,
+		uint16_t *storageVals);
+extern void I2C_read_wm8960_port(uint8_t reg_dir, uint16_t *reg_val,
+		uint16_t *array_vals);
+extern int8_t I2S_write_w8960_port(uint16_t *pBuffer, uint32_t audSize);
+extern int8_t I2S_read_w8960_port(uint16_t *pBuffer, uint32_t audSize);
+extern int8_t I2S_pauseDMA_wm8960_port(void);
+extern int8_t I2S_resumeDMA_wm8960_port(void);
+extern int8_t I2S_stopDMA_wm8960_port(void);
 
 /* USER CODE END PFP */
 
@@ -106,16 +116,18 @@ int main(void)
 	printf("Inicio Aplicacion Codec WM8960\n\r");
 	wm8960_t estructuraAudio;
 
-	estructuraAudio.i2c_select_port  = i2cInstDev_WM8960_port;
-	estructuraAudio.i2c_sendDat_port = i2cwrite_WM8960_port;
-	estructuraAudio.i2c_recvDat_port = i2cread_WM8960_port;
-	estructuraAudio.i2s_select_port  = i2sInst_WM8960_port;
-	estructuraAudio.i2s_sendDat_port = i2swrite_WM8960_port;
+	estructuraAudio.i2c_sendDat_port = I2C_write_wm8960_port;
+	estructuraAudio.i2c_recvDat_port = I2C_read_wm8960_port;
+	estructuraAudio.i2s_sendDat_port = I2S_write_w8960_port;
+	estructuraAudio.i2s_pausDat_port = I2S_pauseDMA_wm8960_port;
+	estructuraAudio.i2s_resuDat_port = I2S_resumeDMA_wm8960_port;
+//	estructuraAudio.i2s_recvDat_port = I2S_read_w8960_port;
 
-
+	Init_wm8960_port(&hi2c1, &hi2s2);
 	WM8960_InitDriver(estructuraAudio);
 
 
+	appFSM app_state=startplay;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -124,8 +136,30 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+		switch (app_state) {
+			case startplay:
+				WM8960_setStatePlayer(pr_start);
+				app_state=playing;
+				break;
 
-		WM8960_audioPlay((uint16_t*) (WaveData ),	 sizeof(WaveData));
+			case playing:
+				WM8960_audioPlayVar((uint16_t*) (WaveData), (uint32_t) sizeof(WaveData)/sizeof(uint16_t));
+				stop_play_flag = WM8960_getStatePlayer();
+				if (stop_play_flag == pr_stopped) app_state=waiting1;
+				break;
+
+			case waiting1:
+				HAL_Delay(2000);
+				app_state=startplay;
+				break;
+
+
+			default:
+				break;
+		}
+
+
+
 
 
 	}
@@ -186,18 +220,19 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-PUTCHAR_PROTOTYPE {
-	/* Place your implementation of fputc here */
-	/* e.g. write a character to the USART3 and Loop until the end of transmission */
-	HAL_UART_Transmit(&huart3, (uint8_t*) &ch, 1, 0xFFFF);
-
-	return ch;
+void HAL_I2S_TxCpltCallback(I2S_HandleTypeDef *hi2s) {
+	WM8960_setIRQplay();
 }
 
-void HAL_I2S_TxCpltCallback(I2S_HandleTypeDef *hi2s)
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	WM8960_setFlagplay();
+	if (GPIO_Pin == GPIO_PIN_13) {
+		WM8960_setIRQpause();
+		HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+	}
 }
+
 /* USER CODE END 4 */
 
 /**
